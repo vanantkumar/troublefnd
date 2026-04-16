@@ -161,6 +161,66 @@ class FakeNewsClassifier:
             },
         }
 
+    import google.generativeai as genai
+
+class GeminiClassifier:
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel("gemini-1.5-flash")
+
+    def predict(self, text: str) -> dict:
+        if not text or not text.strip():
+            return {"verdict": "NO_INPUT", "real_prob": 50,
+                    "fake_score": 0.0, "real_score": 0.0,
+                    "matched_fake": [], "matched_real": [],
+                    "features": {"word_count": 0, "caps_ratio": 0,
+                                 "exclaims": 0, "sensational": 0,
+                                 "hedges": 0, "avg_word_len": 0, "avg_sent_len": 0}}
+        try:
+            prompt = (
+                "You are a fake news detector. Analyse the following news text "
+                "and respond with ONLY one of these three words — no explanation, "
+                "no punctuation, nothing else:\n"
+                "LIKELY REAL\n"
+                "LIKELY FAKE\n"
+                "UNCERTAIN\n\n"
+                f"Text: {text[:2000]}"
+            )
+            response = self.model.generate_content(prompt)
+            raw = response.text.strip().upper()
+
+            if "LIKELY REAL" in raw:
+                verdict = "LIKELY_REAL"
+                real_prob = 85
+            elif "LIKELY FAKE" in raw:
+                verdict = "LIKELY_FAKE"
+                real_prob = 15
+            else:
+                verdict = "UNCERTAIN"
+                real_prob = 50
+
+            return {
+                "verdict": verdict,
+                "real_prob": real_prob,
+                "fake_score": 0.0,
+                "real_score": 0.0,
+                "matched_fake": [],
+                "matched_real": [],
+                "features": {
+                    "word_count": len(text.split()),
+                    "caps_ratio": 0, "exclaims": 0,
+                    "sensational": 0, "hedges": 0,
+                    "avg_word_len": 0, "avg_sent_len": 0,
+                },
+            }
+        except Exception as e:
+            return {"verdict": "ERROR", "real_prob": 50,
+                    "fake_score": 0.0, "real_score": 0.0,
+                    "matched_fake": [], "matched_real": [],
+                    "features": {"word_count": 0, "caps_ratio": 0,
+                                 "exclaims": 0, "sensational": 0,
+                                 "hedges": 0, "avg_word_len": 0, "avg_sent_len": 0}}
+
     # ── Public API ─────────────────────────────────────────────────────────────
     def predict(self, text: str) -> dict:
         """
