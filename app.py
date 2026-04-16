@@ -1,79 +1,68 @@
-# app.py
-
 import streamlit as st
-from model import FakeNewsClassifier
+import google.generativeai as genai
+from model import MLModel
 
-# ── Page Config ─────────────────────────
-st.set_page_config(
-    page_title="Fake News Detector",
-    page_icon="📰",
-    layout="centered"
-)
+# ── CONFIG ─────────────────────────
+st.set_page_config(page_title="Fake News Detector", page_icon="📰")
 
-# ── Load Model Safely ─────────────────────────
+# ── LOAD ML MODEL ─────────────────────────
 @st.cache_resource
-def load_model():
-    return FakeNewsClassifier()
+def load_ml():
+    return MLModel()
 
-model = load_model()
+ml_model = load_ml()
 
-# ── Prediction Wrapper (SAFE) ─────────────────────────
-def hybrid_predict(text_input):
+# ── GEMINI SETUP ─────────────────────────
+API_KEY = "YOUR_GEMINI_API_KEY"   # 🔴 replace this
+genai.configure(api_key=API_KEY)
+
+gemini = genai.GenerativeModel("gemini-1.5-flash")
+
+# ── GEMINI ANALYSIS ─────────────────────────
+def api_analysis(text):
+    prompt = f"""
+    Check if this news is Fake or Real.
+
+    Give:
+    Label: Fake or Real
+    Reason: short explanation
+
+    News:
+    {text}
+    """
+
     try:
-        if not hasattr(model, "predict"):
-            return {"label": "Error", "reason": "Model missing predict() method"}
-
-        result = model.predict(text_input)
-
-        if not isinstance(result, dict):
-            return {"label": "Error", "reason": "Invalid model output"}
-
-        return result
-
+        response = gemini.generate_content(prompt)
+        return response.text
     except Exception as e:
-        return {"label": "Error", "reason": str(e)}
+        return f"API Error: {str(e)}"
+
+
+# ── HYBRID LOGIC ─────────────────────────
+def hybrid_predict(text):
+    ml_result = ml_model.predict(text)
+
+    api_result = api_analysis(text)
+
+    return ml_result, api_result
 
 
 # ── UI ─────────────────────────
-st.title("📰 Fake News Detection System")
-st.markdown("Analyze whether a news headline or article is **Real or Fake**.")
+st.title("📰 Hybrid Fake News Detection System")
 
-# Input box
-text_input = st.text_area("Enter News Text", height=180)
+text = st.text_area("Enter News Text")
 
-# Button
-if st.button("Analyze News"):
+if st.button("Analyze"):
 
-    if not text_input.strip():
-        st.warning("⚠ Please enter some text to analyze.")
+    if not text.strip():
+        st.warning("Enter text first.")
     else:
         with st.spinner("Analyzing..."):
-            result = hybrid_predict(text_input)
+            ml_result, api_result = hybrid_predict(text)
 
-        # ── Display Result ─────────────────────────
-        if result["label"] == "Error":
-            st.error(f"❌ {result['reason']}")
+        st.subheader("🤖 ML Prediction")
+        st.write(f"Label: {ml_result['label']}")
+        st.write(f"Confidence: {ml_result['confidence']}%")
 
-        elif result["label"] == "Invalid":
-            st.warning(f"⚠ {result['reason']}")
-
-        else:
-            label = result["label"]
-            confidence = result["confidence"]
-
-            if label == "Fake News":
-                st.error(f"🛑 {label}")
-            else:
-                st.success(f"✅ {label}")
-
-            st.write(f"**Confidence:** {confidence}%")
-
-            # Expand for details
-            with st.expander("🔍 Detailed Scores"):
-                st.write(f"Fake Score: {result['fake_score']}")
-                st.write(f"Real Score: {result['real_score']}")
-
-
-# ── Footer ─────────────────────────
-st.markdown("---")
-st.caption("Built with Streamlit • Hybrid Fake News Detection System")
+        st.subheader("🧠 AI (Gemini) Analysis")
+        st.write(api_result)
