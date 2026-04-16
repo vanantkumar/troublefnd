@@ -1,124 +1,79 @@
+# app.py
+
 import streamlit as st
-from model import FakeNewsClassifier, GeminiClassifier
-from news_fetcher import fetch_news
+from model import FakeNewsClassifier
 
-# ── Page Config ─────────────────────────────
-st.set_page_config(page_title="Fake News Detector", page_icon="🔍")
+# ── Page Config ─────────────────────────
+st.set_page_config(
+    page_title="Fake News Detector",
+    page_icon="📰",
+    layout="centered"
+)
 
-# ── Load Model ──────────────────────────────
+# ── Load Model Safely ─────────────────────────
 @st.cache_resource
-def load_nb_model():
+def load_model():
     return FakeNewsClassifier()
 
-nb_model = load_nb_model()
+model = load_model()
 
-# ── Sidebar — model switcher ───────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### Model settings")
-    model_choice = st.radio("Classifier", ["Naive Bayes (offline)", "Gemini API"])
-    gemini_key = ""
-    if model_choice == "Gemini API":
-        gemini_key = st.text_input("Gemini API key", type="password",
-                                   placeholder="AIza...")
+# ── Prediction Wrapper (SAFE) ─────────────────────────
+def hybrid_predict(text_input):
+    try:
+        if not hasattr(model, "predict"):
+            return {"label": "Error", "reason": "Model missing predict() method"}
 
-if model_choice == "Gemini API" and gemini_key:
-    model = GeminiClassifier(api_key=gemini_key)
-    model_tag = "Gemini 1.5 Flash"
-elif model_choice == "Gemini API" and not gemini_key:
-    model = nb_model
-    model_tag = "Naive Bayes (no key provided)"
-    st.warning("Enter a Gemini API key in the sidebar to use Gemini.", icon="⚠️")
-else:
-    model = nb_model
-    model_tag = "Naive Bayes + TF-IDF"
-    
-# ── Title ───────────────────────────────────
-st.title(" Fake News Detection System")
+        result = model.predict(text_input)
 
-# ── Tabs ────────────────────────────────────
-tab1, tab2 = st.tabs(["Analyse Text", "Live News"])
+        if not isinstance(result, dict):
+            return {"label": "Error", "reason": "Invalid model output"}
 
-# ════════════════════════════════════════════
-# TAB 1 — TEXT ANALYSIS
-# ════════════════════════════════════════════
-with tab1:
-    st.subheader("Enter News Content")
+        return result
 
-    text_input = st.text_area("Paste your news here:")
+    except Exception as e:
+        return {"label": "Error", "reason": str(e)}
 
-    if st.button("Analyse"):
-        if text_input.strip() == "":
-            st.warning("Please enter some text")
+
+# ── UI ─────────────────────────
+st.title("📰 Fake News Detection System")
+st.markdown("Analyze whether a news headline or article is **Real or Fake**.")
+
+# Input box
+text_input = st.text_area("Enter News Text", height=180)
+
+# Button
+if st.button("Analyze News"):
+
+    if not text_input.strip():
+        st.warning("⚠ Please enter some text to analyze.")
+    else:
+        with st.spinner("Analyzing..."):
+            result = hybrid_predict(text_input)
+
+        # ── Display Result ─────────────────────────
+        if result["label"] == "Error":
+            st.error(f"❌ {result['reason']}")
+
+        elif result["label"] == "Invalid":
+            st.warning(f"⚠ {result['reason']}")
+
         else:
-            result = model.predict(text_input)
+            label = result["label"]
+            confidence = result["confidence"]
 
-            real_prob = result["real_prob"]
-
-            # ── Verdict ─────────────────────
-            if real_prob >= 65:
-                st.success(f"✅ Likely Real ({real_prob}%)")
-            elif real_prob <= 35:
-                st.error(f"❌ Likely Fake ({real_prob}%)")
+            if label == "Fake News":
+                st.error(f"🛑 {label}")
             else:
-                st.warning(f"⚠️ Uncertain ({real_prob}%)")
+                st.success(f"✅ {label}")
 
-            # ── Features ────────────────────
-            st.subheader("Text Analysis")
+            st.write(f"**Confidence:** {confidence}%")
 
-            f = result["features"]
+            # Expand for details
+            with st.expander("🔍 Detailed Scores"):
+                st.write(f"Fake Score: {result['fake_score']}")
+                st.write(f"Real Score: {result['real_score']}")
 
-            st.write("Word Count:", f["word_count"])
-            st.write("Sensational Words:", f["sensational"])
-            st.write("CAPS Ratio:", f["caps_ratio"])
-            st.write("Hedge Words:", f["hedges"])
-            st.write("Exclamations:", f["exclaims"])
 
-            # ── Score Chart ────────────────
-            st.subheader("Score Breakdown")
-
-            st.bar_chart({
-                "Real": result["real_score"],
-                "Fake": result["fake_score"]
-            })
-
-# ════════════════════════════════════════════
-# TAB 2 — LIVE NEWS
-# ════════════════════════════════════════════
-with tab2:
-    st.subheader("Live News Feed")
-
-    categories = {
-        "Top": "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en",
-        "Technology": "https://news.google.com/rss/search?q=technology",
-        "Business": "https://news.google.com/rss/search?q=business",
-    }
-
-    category = st.selectbox("Select Category", list(categories.keys()))
-
-    if st.button("Load News"):
-        articles = fetch_news(categories[category], max_items=10)
-
-        if not articles:
-            st.error("Failed to load news")
-        else:
-            for i, art in enumerate(articles):
-                st.markdown("---")
-
-                st.subheader(art["title"])
-                st.write(art.get("description", ""))
-
-                result = model.predict(art["title"] + " " + art.get("description", ""))
-                r = result["real_prob"]
-
-                if r >= 65:
-                    st.success(f"Real ({r}%)")
-                elif r <= 35:
-                    st.error(f"Fake ({r}%)")
-                else:
-                    st.warning(f"Uncertain ({r}%)")
-
-                if st.button("Analyse Article", key=i):
-                    st.write("Detailed Analysis:")
-
-                    f = result["features"]
-                    st.write(f)
+# ── Footer ─────────────────────────
+st.markdown("---")
+st.caption("Built with Streamlit • Hybrid Fake News Detection System")
